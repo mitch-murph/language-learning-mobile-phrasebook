@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const NS_KEY = 'phrasebook.namespace';
 const MODE_KEY = 'phrasebook.mode';
 const THEME_KEY = 'phrasebook.theme';
+const SHUFFLE_KEY = 'phrasebook.shuffle';
+const LAST_SESSION_KEY = 'phrasebook.lastSession';
 
 /**
  * The selected library ("namespace"), the mobile equivalent of the web app's
@@ -42,4 +44,33 @@ export async function getTheme() {
 
 export async function setTheme(theme) {
   await AsyncStorage.setItem(THEME_KEY, theme);
+}
+
+/** Whether to shuffle phrase order at the start of a session. */
+export async function getShuffle() {
+  return (await AsyncStorage.getItem(SHUFFLE_KEY)) === '1';
+}
+
+export async function setShuffle(on) {
+  await AsyncStorage.setItem(SHUFFLE_KEY, on ? '1' : '0');
+}
+
+/**
+ * The last session's filters + mode + shuffle, so the Home screen can offer a
+ * one-tap "Resume" button on launch. Shape: { langs: string[], tags: string[],
+ * mode: string, shuffle: boolean }. Returns null if nothing has been started
+ * yet (or the stored value is corrupt).
+ */
+export async function getLastSession() {
+  const raw = await AsyncStorage.getItem(LAST_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastSession(session) {
+  await AsyncStorage.setItem(LAST_SESSION_KEY, JSON.stringify(session));
 }

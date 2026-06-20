@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MODES, MODE_META } from '../audio/usePlayer';
+import { Btn } from '../ui';
 
 // The session builder. The deck is defined purely by filters — selected
 // languages and tags (plus an "Untagged" bucket) — rather than picking
@@ -18,6 +18,30 @@ import { MODES, MODE_META } from '../audio/usePlayer';
 // via horizontal scroll) and everything is large and high-contrast.
 
 const UNTAGGED = ' untagged'; // sentinel tag for phrases with no tags
+
+// Does a phrase pass a (languages × tags) filter? Empty sets mean "no constraint".
+function phraseMatches(p, langs, tags) {
+  if (langs.size && !langs.has(p.languageName)) return false;
+  if (!tags.size) return true;
+  const wantUntagged = tags.has(UNTAGGED);
+  return p.tags.some((t) => tags.has(t)) || (wantUntagged && p.tags.length === 0);
+}
+
+// Flatten the grouped phrases that pass a filter into a single ordered deck.
+// Shared by the live selection and the saved "Resume" recipe.
+function buildDeck(groups, langs, tags) {
+  return groups.flatMap((g) => g.phrases.filter((p) => phraseMatches(p, langs, tags)));
+}
+
+// Fisher–Yates shuffle into a new array (never mutates the source deck).
+function shuffled(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 function formatSize(bytes) {
   if (!bytes) return '0 MB';
@@ -42,6 +66,9 @@ export function Home({
   onToggleTheme,
   mode,
   onChangeMode,
+  shuffle,
+  onChangeShuffle,
+  lastSession,
   onStart,
   namespace,
   onChangeNamespace,
@@ -54,8 +81,10 @@ export function Home({
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
-  const [filterLangs, setFilterLangs] = useState(new Set());
-  const [filterTags, setFilterTags] = useState(new Set()); // may include UNTAGGED
+  // Pre-fill the builder with the last session's filters so the screen reopens
+  // where you left off (the Resume button is the true one-tap path).
+  const [filterLangs, setFilterLangs] = useState(() => new Set(lastSession?.langs ?? []));
+  const [filterTags, setFilterTags] = useState(() => new Set(lastSession?.tags ?? []));
   const [showK, setShowK] = useState(false);
   const [nsDraft, setNsDraft] = useState(namespace ?? '');
 
@@ -98,19 +127,9 @@ export function Home({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, filterLangs]);
 
-  // A phrase is in the deck if it passes both the language and tag filters.
-  // An empty filter set means "no constraint" (everything passes).
-  const matches = (p) => {
-    const langOk = filterLangs.size === 0 || filterLangs.has(p.languageName);
-    if (!langOk) return false;
-    if (filterTags.size === 0) return true;
-    const wantUntagged = filterTags.has(UNTAGGED);
-    return p.tags.some((t) => filterTags.has(t)) || (wantUntagged && p.tags.length === 0);
-  };
-
   const matchedGroups = useMemo(() => {
     return groups
-      .map((g) => ({ ...g, phrases: g.phrases.filter(matches) }))
+      .map((g) => ({ ...g, phrases: g.phrases.filter((p) => phraseMatches(p, filterLangs, filterTags)) }))
       .filter((g) => g.phrases.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, filterLangs, filterTags]);
@@ -119,6 +138,17 @@ export function Home({
   const count = deck.length;
   const langsUsed = matchedGroups.length;
   const everything = filterLangs.size === 0 && filterTags.size === 0;
+
+  // Resume recipe: rebuild the saved deck against the current library. Hidden if
+  // the saved filters no longer match anything (e.g. library changed).
+  const resume = useMemo(() => {
+    if (!lastSession) return null;
+    const d = buildDeck(groups, new Set(lastSession.langs ?? []), new Set(lastSession.tags ?? []));
+    if (!d.length) return null;
+    const langs = new Set(d.map((p) => p.languageName)).size;
+    return { deck: d, langs };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, lastSession]);
 
   // Only offer options that can co-occur with the other facet (plus any already
   // selected, so they can be turned off).
@@ -144,29 +174,65 @@ export function Home({
 
   const nsChanged = (nsDraft.trim() || '').toLowerCase() !== (namespace ?? '').toLowerCase();
 
+  const handleStart = () => {
+    if (count === 0) return;
+    const ordered = shuffle ? shuffled(deck) : deck;
+    onStart(ordered, mode, { langs: [...filterLangs], tags: [...filterTags], mode, shuffle });
+  };
+
+  const handleResume = () => {
+    if (!resume) return;
+    const m = lastSession.mode ?? 'drill';
+    const sh = !!lastSession.shuffle;
+    const ordered = sh ? shuffled(resume.deck) : resume.deck;
+    onStart(ordered, m, {
+      langs: lastSession.langs ?? [],
+      tags: lastSession.tags ?? [],
+      mode: m,
+      shuffle: sh,
+    });
+  };
+
   const Chip = ({ active, label, onPress }) => (
-    <Pressable onPress={onPress} style={[s.chip, active && s.chipActive]}>
+    <Btn onPress={onPress} style={[s.chip, active && s.chipActive]}>
       <Text style={[s.chipText, active && s.chipTextActive]}>{label}</Text>
-    </Pressable>
+    </Btn>
   );
 
   return (
     <View style={[s.container, { paddingTop: insets.top + 12 }]}>
+      {/* header: title + theme toggle (theme lives here, not in the sync card) */}
+      <View style={s.header}>
+        <Text style={s.title}>🚗 Drive Mode</Text>
+        <Btn onPress={onToggleTheme} style={s.themeBtn}>
+          <Text style={s.themeBtnText}>{themeName === 'dark' ? '☀' : '☾'}</Text>
+        </Btn>
+      </View>
+
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 14 }} keyboardShouldPersistTaps="handled">
-        {/* top controls: namespace (k) toggle, theme, sync */}
+        {/* one-tap resume of the last session */}
+        {resume && (
+          <Btn onPress={handleResume} strong style={s.resumeBtn}>
+            <Text style={s.resumeText}>▶ RESUME LAST SESSION</Text>
+            <Text style={s.resumeSub}>
+              {resume.deck.length} {resume.deck.length === 1 ? 'phrase' : 'phrases'} ·{' '}
+              {MODE_META[lastSession.mode]?.label ?? 'Drill'}
+              {lastSession.shuffle ? ' · shuffled' : ''}
+            </Text>
+          </Btn>
+        )}
+
+        {/* sync card: namespace (k) + sync */}
         <View style={s.syncBar}>
           <View style={s.controlRow}>
-            <Pressable onPress={() => setShowK((v) => !v)} style={s.kToggle}>
+            <Btn onPress={() => setShowK((v) => !v)} style={s.kToggle}>
               <Text style={s.kToggleText} numberOfLines={1}>🔑 {namespace || 'default'}</Text>
-            </Pressable>
-            <Pressable onPress={onToggleTheme} style={s.iconBtnSmall}>
-              <Text style={s.iconBtnText}>{themeName === 'dark' ? '☀' : '☾'}</Text>
-            </Pressable>
-            <Pressable onPress={onSync} disabled={syncing} style={[s.syncBtn, syncing && s.disabled]}>
+            </Btn>
+            <Btn onPress={onSync} disabled={syncing} style={[s.syncBtn, syncing && s.disabled]}>
               <Text style={s.syncBtnText}>
                 {syncing ? (syncProgress ? `↻ ${syncProgress.done}/${syncProgress.total}` : '↻ …') : '↓ Sync'}
               </Text>
-            </Pressable>
+            </Btn>
           </View>
           <Text style={s.syncMeta}>Synced {formatAgo(lastSyncedAt)} · {formatSize(sizeBytes)}</Text>
           {showK && (
@@ -180,13 +246,13 @@ export function Home({
                 autoCorrect={false}
                 style={s.nsInput}
               />
-              <Pressable
+              <Btn
                 onPress={() => { onChangeNamespace(nsDraft.trim()); setShowK(false); }}
                 disabled={!nsChanged}
                 style={[s.smallBtn, !nsChanged && s.disabled]}
               >
                 <Text style={s.smallBtnText}>Set</Text>
-              </Pressable>
+              </Btn>
             </View>
           )}
         </View>
@@ -199,7 +265,7 @@ export function Home({
             <Chip
               key={g.languageName}
               active={filterLangs.has(g.languageName)}
-              label={`${g.native}  ${g.languageName}`}
+              label={g.languageName}
               onPress={() => toggleLang(g.languageName)}
             />
           ))}
@@ -226,9 +292,9 @@ export function Home({
             {everything ? `All ${count}` : count} {count === 1 ? 'phrase' : 'phrases'} · {langsUsed} {langsUsed === 1 ? 'language' : 'languages'}
           </Text>
           {!everything && (
-            <Pressable onPress={selectEverything} hitSlop={10}>
+            <Btn onPress={selectEverything} hitSlop={10}>
               <Text style={s.clearText}>Reset</Text>
-            </Pressable>
+            </Btn>
           )}
         </View>
 
@@ -239,9 +305,7 @@ export function Home({
           matchedGroups.map((g) => (
             <View key={g.languageName}>
               <View style={s.groupHeader}>
-                <Text style={s.groupTitle}>
-                  {g.native} <Text style={s.groupTitleSub}>{g.languageName.toUpperCase()}</Text>
-                </Text>
+                <Text style={s.groupTitle}>{g.languageName}</Text>
                 <Text style={s.groupCount}>{g.phrases.length}</Text>
               </View>
               {g.phrases.map((p) => (
@@ -255,20 +319,26 @@ export function Home({
         )}
       </ScrollView>
 
-      {/* mode picker + start */}
+      {/* shuffle + mode picker + start */}
       <View style={[s.footer, { paddingBottom: insets.bottom + 16 }]}>
+        <Btn onPress={() => onChangeShuffle(!shuffle)} style={[s.shuffleBtn, shuffle && s.shuffleBtnActive]}>
+          <Text style={[s.shuffleText, shuffle && s.shuffleTextActive]}>
+            Shuffle order · {shuffle ? 'ON' : 'OFF'}
+          </Text>
+        </Btn>
         <View style={s.modeRow}>
           {MODES.map((m) => {
             const active = mode === m;
             return (
-              <Pressable key={m} onPress={() => onChangeMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
+              <Btn key={m} onPress={() => onChangeMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
                 <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{MODE_META[m].label}</Text>
-              </Pressable>
+              </Btn>
             );
           })}
         </View>
-        <Pressable
-          onPress={() => count > 0 && onStart(deck, mode)}
+        <Btn
+          onPress={handleStart}
+          strong
           disabled={count === 0}
           style={[s.startBtn, count === 0 && s.startBtnDisabled]}
         >
@@ -276,7 +346,7 @@ export function Home({
           <Text style={[s.startBtnSub, count === 0 && s.startBtnTextDisabled]}>
             {count} {count === 1 ? 'phrase' : 'phrases'} · {langsUsed} {langsUsed === 1 ? 'language' : 'languages'}
           </Text>
-        </Pressable>
+        </Btn>
       </View>
     </View>
   );
@@ -286,12 +356,19 @@ function makeStyles(p) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: p.bg, paddingHorizontal: 18 },
 
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    title: { fontSize: 20, fontWeight: '800', color: p.fg, letterSpacing: 0.2 },
+    themeBtn: { width: 48, height: 44, borderRadius: 11, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center' },
+    themeBtnText: { fontSize: 18, color: p.fg },
+
+    resumeBtn: { borderRadius: 18, backgroundColor: p.green, paddingVertical: 18, alignItems: 'center', gap: 3, marginBottom: 12 },
+    resumeText: { fontSize: 20, fontWeight: '800', color: '#fff', letterSpacing: 0.4 },
+    resumeSub: { fontSize: 13.5, fontWeight: '600', color: '#fff', opacity: 0.9 },
+
     syncBar: { backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, borderRadius: 14, padding: 10, gap: 8, marginBottom: 12 },
     controlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     kToggle: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, paddingHorizontal: 12, justifyContent: 'center' },
     kToggleText: { fontSize: 15, fontWeight: '700', color: p.fg },
-    iconBtnSmall: { width: 48, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, alignItems: 'center', justifyContent: 'center' },
-    iconBtnText: { fontSize: 18, color: p.fg },
     nsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     nsInput: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, paddingHorizontal: 12, color: p.fg, fontSize: 15 },
     smallBtn: { paddingHorizontal: 16, height: 44, borderRadius: 10, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' },
@@ -323,6 +400,10 @@ function makeStyles(p) {
     rowNative: { fontSize: 12.5, fontWeight: '500', color: p.muted, marginTop: 1 },
 
     footer: { borderTopWidth: 1, borderTopColor: p.line, paddingTop: 12, gap: 12 },
+    shuffleBtn: { height: 48, borderRadius: 13, borderWidth: 1.5, borderColor: p.line, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center' },
+    shuffleBtnActive: { backgroundColor: p.green, borderColor: p.green },
+    shuffleText: { fontSize: 15.5, fontWeight: '800', color: p.muted, letterSpacing: 0.3 },
+    shuffleTextActive: { color: '#fff' },
     modeRow: { flexDirection: 'row', gap: 7 },
     modeBtn: { flex: 1, paddingVertical: 15, borderRadius: 13, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center' },
     modeBtnActive: { backgroundColor: p.fg, borderColor: p.fg },

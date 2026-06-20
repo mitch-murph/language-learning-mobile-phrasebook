@@ -21,6 +21,8 @@ function App() {
   const [ready, setReady] = useState(false);
   const [themeName, setThemeName] = useState('light');
   const [mode, setModeState] = useState('drill');
+  const [shuffle, setShuffleState] = useState(false);
+  const [lastSession, setLastSession] = useState(null);
   const [namespace, setNamespaceState] = useState(null);
 
   const [phrases, setPhrases] = useState([]); // cached raw list for this library
@@ -52,13 +54,17 @@ function App() {
         shouldPlayInBackground: true, // keep drilling with the screen off
         interruptionMode: 'doNotMix',
       });
-      const [t, m, ns] = await Promise.all([
+      const [t, m, sh, last, ns] = await Promise.all([
         storage.getTheme(),
         storage.getMode(),
+        storage.getShuffle(),
+        storage.getLastSession(),
         storage.getNamespace(),
       ]);
       setThemeName(t);
       setModeState(m);
+      setShuffleState(sh);
+      setLastSession(last);
       setNamespaceState(ns);
       await loadCacheFor(ns);
       setReady(true);
@@ -81,6 +87,11 @@ function App() {
   const onChangeMode = useCallback((m) => {
     setModeState(m);
     storage.setMode(m);
+  }, []);
+
+  const onChangeShuffle = useCallback((on) => {
+    setShuffleState(on);
+    storage.setShuffle(on);
   }, []);
 
   const onChangeNamespace = useCallback(
@@ -111,10 +122,16 @@ function App() {
     }
   }, [namespace, loadCacheFor]);
 
-  const startSession = useCallback((d, m) => {
+  // Start a session and remember its recipe (filters + mode + shuffle) so the
+  // next launch can offer a one-tap Resume. `meta` is the snapshot to persist.
+  const startSession = useCallback((d, m, meta) => {
     setDeck(d);
     setDeckMode(m);
     setView('drive');
+    if (meta) {
+      setLastSession(meta);
+      storage.setLastSession(meta);
+    }
   }, []);
 
   // Android hardware back: from a session it returns Home; from Home it falls
@@ -153,6 +170,9 @@ function App() {
             onToggleTheme={onToggleTheme}
             mode={mode}
             onChangeMode={onChangeMode}
+            shuffle={shuffle}
+            onChangeShuffle={onChangeShuffle}
+            lastSession={lastSession}
             onStart={startSession}
             namespace={namespace}
             onChangeNamespace={onChangeNamespace}
