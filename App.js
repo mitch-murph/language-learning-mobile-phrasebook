@@ -1,137 +1,189 @@
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
-import { listPhrases, getAudioUrl } from './src/api';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { setAudioModeAsync } from 'expo-audio';
+import { groupByLanguage } from './src/phrases';
+import { loadLibrary, syncLibrary, librarySizeBytes } from './src/sync';
+import { paletteFor } from './src/theme';
+import * as storage from './src/storage';
+import { Home } from './src/screens/Home';
+import { Player } from './src/screens/Player';
 
-// Minimal demo: pull the saved phrases from the Lambda endpoint and play the
-// normal / slow MP3s straight from S3. No drill engine, no waveform — just
-// proof that the endpoint + S3 audio work from a native app.
-export default function App() {
-  const [phrases, setPhrases] = useState([]);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [nowPlaying, setNowPlaying] = useState(null); // `${phraseId}:${pace}`
+// Top-level orchestrator and view machine (home → drive). No navigation library
+// — like the web app, a plain `view` state is enough for two screens.
+//
+// Offline-first: on launch we read the cached phrase list for the active
+// library and render from it. The Sync button refreshes the list and downloads
+// audio. Playback prefers local files (resolved in src/sync.js) and falls back
+// to remote S3 for anything not yet downloaded.
+function App() {
+  const [ready, setReady] = useState(false);
+  const [themeName, setThemeName] = useState('light');
+  const [mode, setModeState] = useState('drill');
+  const [namespace, setNamespaceState] = useState(null);
 
-  // One shared player; tapping a phrase swaps its source.
-  const player = useAudioPlayer(null);
+  const [phrases, setPhrases] = useState([]); // cached raw list for this library
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [sizeBytes, setSizeBytes] = useState(0);
 
-  useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true });
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(null);
+
+  const [view, setView] = useState('home');
+  const [deck, setDeck] = useState([]);
+  const [deckMode, setDeckMode] = useState('drill');
+
+  const palette = paletteFor(themeName);
+
+  // Read the cached list + on-device size for a given library into state.
+  const loadCacheFor = useCallback(async (ns) => {
+    const lib = await loadLibrary(ns);
+    setPhrases(lib?.phrases ?? []);
+    setLastSyncedAt(lib?.lastSyncedAt ?? null);
+    setSizeBytes(librarySizeBytes(ns));
   }, []);
 
+  // Bootstrap: audio session (with background playback) + saved prefs + cache.
   useEffect(() => {
-    listPhrases()
-      .then(setPhrases)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    (async () => {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true, // keep drilling with the screen off
+        interruptionMode: 'doNotMix',
+      });
+      const [t, m, ns] = await Promise.all([
+        storage.getTheme(),
+        storage.getMode(),
+        storage.getNamespace(),
+      ]);
+      setThemeName(t);
+      setModeState(m);
+      setNamespaceState(ns);
+      await loadCacheFor(ns);
+      setReady(true);
+    })();
+  }, [loadCacheFor]);
+
+  const groups = useMemo(
+    () => (phrases.length ? groupByLanguage(phrases, namespace) : []),
+    [phrases, namespace],
+  );
+
+  const onToggleTheme = useCallback(() => {
+    setThemeName((t) => {
+      const next = t === 'dark' ? 'light' : 'dark';
+      storage.setTheme(next);
+      return next;
+    });
   }, []);
 
-  function toggle(phrase, pace) {
-    const key = `${phrase.phraseId}:${pace}`;
-    if (nowPlaying === key) {
-      player.pause();
-      setNowPlaying(null);
-      return;
+  const onChangeMode = useCallback((m) => {
+    setModeState(m);
+    storage.setMode(m);
+  }, []);
+
+  const onChangeNamespace = useCallback(
+    async (ns) => {
+      const value = ns ? ns : null;
+      await storage.setNamespace(value);
+      // Re-read so reserved words ("default") normalize the same way everywhere.
+      const stored = await storage.getNamespace();
+      setNamespaceState(stored);
+      await loadCacheFor(stored);
+    },
+    [loadCacheFor],
+  );
+
+  const onSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncProgress(null);
+    try {
+      const res = await syncLibrary(namespace, (done, total) => setSyncProgress({ done, total }));
+      await loadCacheFor(namespace);
+      const failedNote = res.failed ? ` (${res.failed} failed)` : '';
+      Alert.alert('Sync complete', `${res.total} phrases · ${res.downloaded} new audio files${failedNote}.`);
+    } catch (e) {
+      Alert.alert("Couldn't sync", `${e.message}\n\nCheck your connection and the EXPO_PUBLIC_* values.`);
+    } finally {
+      setSyncing(false);
+      setSyncProgress(null);
     }
-    const s3Key = pace === 'slow' ? phrase.slowS3Key : phrase.normalS3Key;
-    player.replace({ uri: getAudioUrl(s3Key) });
-    player.play();
-    setNowPlaying(key);
-  }
+  }, [namespace, loadCacheFor]);
 
-  function renderItem({ item }) {
+  const startSession = useCallback((d, m) => {
+    setDeck(d);
+    setDeckMode(m);
+    setView('drive');
+  }, []);
+
+  // Android hardware back: from a session it returns Home; from Home it falls
+  // through to the OS default (closes the app). Replaces the old in-app button.
+  // Subscribe once and read the current view from a ref so we never re-register
+  // (and never tear down) the handler while navigating.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (viewRef.current === 'drive') {
+        setView('home');
+        return true; // handled — don't exit the app
+      }
+      return false; // Home: let the OS close the app
+    });
+    return () => sub.remove();
+  }, []);
+
+  if (!ready) {
     return (
-      <View style={styles.card}>
-        <Text style={styles.native}>{item.text}</Text>
-        {!!item.translation && <Text style={styles.translation}>{item.translation}</Text>}
-        <Text style={styles.meta}>{item.languageName}</Text>
-        <View style={styles.row}>
-          {['normal', 'slow'].map((pace) => {
-            const active = nowPlaying === `${item.phraseId}:${pace}`;
-            return (
-              <Pressable
-                key={pace}
-                onPress={() => toggle(item, pace)}
-                style={[styles.btn, active && styles.btnActive]}
-              >
-                <Text style={[styles.btnText, active && styles.btnTextActive]}>
-                  {active ? '❙❙ ' : '▶ '}
-                  {pace === 'slow' ? 'Slow' : 'Normal'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+      <View style={[styles.center, { backgroundColor: palette.bg }]}>
+        <ActivityIndicator size="large" color={palette.accent} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Phrasebook</Text>
+    <SafeAreaProvider>
+      <View style={{ flex: 1, backgroundColor: palette.bg }}>
+        {view === 'home' && (
+          <Home
+            groups={groups}
+            palette={palette}
+            themeName={themeName}
+            onToggleTheme={onToggleTheme}
+            mode={mode}
+            onChangeMode={onChangeMode}
+            onStart={startSession}
+            namespace={namespace}
+            onChangeNamespace={onChangeNamespace}
+            onSync={onSync}
+            syncing={syncing}
+            syncProgress={syncProgress}
+            lastSyncedAt={lastSyncedAt}
+            sizeBytes={sizeBytes}
+          />
+        )}
 
-      {loading && <ActivityIndicator style={styles.center} size="large" />}
+        {view === 'drive' && (
+          <Player
+            // Remount on a fresh session so the engine resets cleanly.
+            key={deck.map((p) => p.id).join(',')}
+            deck={deck}
+            initialMode={deckMode}
+            palette={palette}
+            themeName={themeName}
+            onToggleTheme={onToggleTheme}
+          />
+        )}
 
-      {error && (
-        <View style={styles.center}>
-          <Text style={styles.error}>Couldn't load phrases</Text>
-          <Text style={styles.errorDetail}>{error}</Text>
-          <Text style={styles.errorDetail}>
-            Check the EXPO_PUBLIC_* values in .env.local
-          </Text>
-        </View>
-      )}
-
-      {!loading && !error && (
-        <FlatList
-          data={phrases}
-          keyExtractor={(p) => p.phraseId}
-          renderItem={renderItem}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={
-            <Text style={styles.errorDetail}>No phrases yet.</Text>
-          }
-        />
-      )}
-
-      <StatusBar style="auto" />
-    </View>
+        <StatusBar style={themeName === 'dark' ? 'light' : 'dark'} />
+      </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingTop: 64, paddingHorizontal: 16 },
-  title: { fontSize: 28, fontWeight: '700', marginBottom: 16 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
-  list: { paddingBottom: 32, gap: 12 },
-  card: {
-    borderWidth: 1,
-    borderColor: '#e3e3e3',
-    borderRadius: 14,
-    padding: 16,
-    backgroundColor: '#fafafa',
-  },
-  native: { fontSize: 22, fontWeight: '600' },
-  translation: { fontSize: 16, color: '#444', marginTop: 2 },
-  meta: { fontSize: 12, color: '#888', marginTop: 6, textTransform: 'uppercase', letterSpacing: 1 },
-  row: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  btn: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-    backgroundColor: '#1f6feb',
-  },
-  btnActive: { backgroundColor: '#0a3d8f' },
-  btnText: { color: '#fff', fontWeight: '600' },
-  btnTextActive: { color: '#dbe6ff' },
-  error: { fontSize: 18, fontWeight: '600', color: '#b00020' },
-  errorDetail: { fontSize: 13, color: '#888', textAlign: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
+
+export default App;
