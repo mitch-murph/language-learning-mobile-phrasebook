@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "rn-android-app",
-    "slug": "rn-android-app",
+    "name": "language-learning-mobile-phrasebook",
+    "slug": "language-learning-mobile-phrasebook",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
