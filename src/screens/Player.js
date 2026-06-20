@@ -14,6 +14,20 @@ import { Btn } from '../ui';
 // "Up next" was dropped — when driving you only need the current phrase and a
 // way to jump back to something you just heard.
 
+// Base type metrics for the now-playing card. Kept as plain numbers (not only
+// inside the StyleSheet) so the auto-fit can scale them down by a factor.
+const CARD_EN = { fontSize: 27, fontWeight: '700', lineHeight: 33 };
+const CARD_NATIVE = { fontSize: 42, fontWeight: '600', lineHeight: 52, marginTop: 16 };
+const CARD_RO = { fontSize: 25, fontWeight: '600', lineHeight: 31, marginTop: 10 };
+
+// Scale a card text's size by the fit factor (1 = natural). Returns only the
+// size props so it can layer over the base style without dropping its colour.
+function scaleFont(base, f) {
+  const out = { fontSize: base.fontSize * f, lineHeight: base.lineHeight * f };
+  if (base.marginTop != null) out.marginTop = base.marginTop * f;
+  return out;
+}
+
 function ReplayRow({ p, done, onClick, styles }) {
   if (!p) return null;
   return (
@@ -36,11 +50,11 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
   const { phrase: p, playing, staying, mode, loop, learned, history, segIdx } = player;
   const revealed = mode !== 'recall' || segIdx >= 2;
 
-  // Auto-fit: measure the available box height and the content's natural
-  // height, then scale the content down to fit. transform:scale doesn't affect
-  // layout, so onLayout keeps reporting the natural height — no feedback loop.
-  // Reveal opacity also doesn't change layout, so the scale stays put when the
-  // translation appears in recall mode.
+  // Auto-fit: a hidden full-size measurer reports the content's natural height
+  // (independent of the fit factor, so there's no measure→scale→measure loop),
+  // and the visible copy scales its FONT — not its box — by `fit`. Scaling the
+  // font keeps the text full-width, so left/right padding is identical for every
+  // phrase; only long phrases render smaller and wrap onto more lines.
   const [availH, setAvailH] = useState(0);
   const [contentH, setContentH] = useState(0);
   const fit = availH > 0 && contentH > 0 ? Math.min(1, availH / contentH) : 1;
@@ -79,17 +93,26 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
             <Text style={s.loopBadgeText}>↻ ×{loop}</Text>
           </View>
         )}
+        {/* Hidden measurer: a full-size copy whose height feeds the fit factor.
+            It's never scaled, so reading it back can't change its own size. */}
+        <View
+          style={s.measurer}
+          pointerEvents="none"
+          onLayout={(e) => setContentH(e.nativeEvent.layout.height)}
+        >
+          <Text style={s.cardEn}>{p.en}</Text>
+          <Text style={s.cardNative}>{p.native}</Text>
+          {p.nonLatin && !!p.ro && <Text style={s.cardRo}>{p.ro}</Text>}
+        </View>
+
+        {/* Visible copy: full width with the font scaled to fit, so horizontal
+            padding stays identical no matter the phrase length. */}
         <View style={s.cardFit} onLayout={(e) => setAvailH(e.nativeEvent.layout.height)}>
-          <View
-            style={{ transform: [{ scale: fit }] }}
-            onLayout={(e) => setContentH(e.nativeEvent.layout.height)}
-          >
-            <Text style={s.cardEn}>{p.en}</Text>
-            <Text style={[s.cardNative, { opacity: revealed ? 1 : 0 }]}>{p.native}</Text>
-            {p.nonLatin && !!p.ro && (
-              <Text style={[s.cardRo, { color: accent, opacity: revealed ? 1 : 0 }]}>{p.ro}</Text>
-            )}
-          </View>
+          <Text style={[s.cardEn, scaleFont(CARD_EN, fit)]}>{p.en}</Text>
+          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: revealed ? 1 : 0 }]}>{p.native}</Text>
+          {p.nonLatin && !!p.ro && (
+            <Text style={[s.cardRo, scaleFont(CARD_RO, fit), { color: accent, opacity: revealed ? 1 : 0 }]}>{p.ro}</Text>
+          )}
         </View>
       </View>
 
@@ -144,11 +167,15 @@ function makeStyles(p) {
     // phrase can never grow the card and shove the rest of the layout around.
     card: { height: 300, padding: 26, borderRadius: 28, backgroundColor: p.surface, borderWidth: 2, marginTop: 16, overflow: 'hidden' },
     cardFit: { flex: 1, justifyContent: 'center' },
+    // Full-size measurer overlaid inside the card padding (so its width — and
+    // therefore its wrapping and height — matches the visible copy), invisible
+    // and non-interactive.
+    measurer: { position: 'absolute', top: 26, left: 26, right: 26, opacity: 0 },
     loopBadge: { position: 'absolute', top: 16, right: 18 },
     loopBadgeText: { fontSize: 14, fontWeight: '800', color: p.green },
-    cardEn: { fontSize: 27, fontWeight: '700', color: p.fg, lineHeight: 33 },
-    cardNative: { fontSize: 42, fontWeight: '600', color: p.fg, marginTop: 16, lineHeight: 52 },
-    cardRo: { fontSize: 25, fontWeight: '600', marginTop: 10, lineHeight: 31 },
+    cardEn: { ...CARD_EN, color: p.fg },
+    cardNative: { ...CARD_NATIVE, color: p.fg },
+    cardRo: { ...CARD_RO },
 
     // flex:1 so it fills the gap down to the bottom; overflow hidden + the
     // absolute controls on top mean extra rows simply disappear behind them.
