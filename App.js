@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { setAudioModeAsync } from 'expo-audio';
+import { setupTrackPlayer } from './src/audio/trackPlayer';
 import { groupByLanguage } from './src/phrases';
 import { loadLibrary, syncLibrary, librarySizeBytes } from './src/sync';
 import { paletteFor } from './src/theme';
@@ -49,11 +49,13 @@ function App() {
   // Bootstrap: audio session (with background playback) + saved prefs + cache.
   useEffect(() => {
     (async () => {
-      await setAudioModeAsync({
-        playsInSilentMode: true,
-        shouldPlayInBackground: true, // keep drilling with the screen off
-        interruptionMode: 'doNotMix',
-      });
+      // Set up the media engine (background playback + lock-screen/Bluetooth
+      // controls live here now). Don't let a setup hiccup block the UI.
+      try {
+        await setupTrackPlayer();
+      } catch (e) {
+        console.warn('TrackPlayer setup failed:', e?.message ?? e);
+      }
       const [t, m, sh, last, ns] = await Promise.all([
         storage.getTheme(),
         storage.getMode(),

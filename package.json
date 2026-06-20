@@ -15,12 +15,17 @@
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
     "react-native-safe-area-context": "~5.7.0",
+    "react-native-track-player": "^4.1.2",
     "react-native-web": "^0.21.2"
   },
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
-    "apk": "node scripts/build-apk.js"
+    "apk": "node scripts/build-apk.js",
+    "postinstall": "patch-package"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
 }
