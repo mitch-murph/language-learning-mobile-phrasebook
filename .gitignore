@@ -37,5 +37,7 @@ yarn-error.*
 *.tsbuildinfo
 
 # generated native folders
+# NOTE: android/ is intentionally committed — this project builds locally without
+# `expo prebuild` (see AGENTS.md), so the checked-in native project + the pinned
+# Gradle version must persist. Build artifacts are excluded by android/.gitignore.
 /ios
-/android
