@@ -120,12 +120,13 @@ function drawBars(cv, area, color) {
   }
 }
 
-function render(size, { bg = false, full = false, mark = WHITE, area = 0.46 }) {
+function render(size, { bg = false, full = false, round = false, mark = WHITE, area = 0.46 }) {
   const cv = canvas(size * SS, size * SS);
   const S = cv.w;
   if (bg) {
-    if (full) fillRoundRect(cv, 0, 0, S, S, 0, GREEN); // full-bleed (adaptive bg)
-    else fillRoundRect(cv, 0, 0, S, S, S * 0.22, GREEN); // rounded square
+    // full-bleed (adaptive bg), circle (round launcher), else rounded square.
+    const r = full ? 0 : round ? S / 2 : S * 0.22;
+    fillRoundRect(cv, 0, 0, S, S, r, GREEN);
   }
   drawBars(cv, S * area, mark);
   const { w, h, buf } = downsample(cv, SS);
@@ -147,4 +148,36 @@ const files = {
 for (const [name, data] of Object.entries(files)) {
   fs.writeFileSync(path.join(out, name), data);
   console.log(`wrote assets/${name} (${data.length} bytes)`);
+}
+
+// --- Android native launcher resources --------------------------------------
+// The build uses the committed android/ project directly (no `expo prebuild`),
+// so app.json's `icon` never reaches the native resources — the stock Expo
+// launcher icons would otherwise ship. Render our mark straight into res/ at
+// every density and drop the matching .webp defaults so they don't win lookup.
+const resRoot = path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'res');
+const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+const LAUNCHER = 48; // legacy square launcher base size (dp)
+const ADAPTIVE = 108; // adaptive-icon layer base size (dp)
+
+for (const [dens, scale] of Object.entries(DENSITIES)) {
+  const dir = path.join(resRoot, `mipmap-${dens}`);
+  if (!fs.existsSync(dir)) continue;
+  const L = Math.round(LAUNCHER * scale);
+  const A = Math.round(ADAPTIVE * scale);
+  const writes = {
+    // legacy icons (API < 26): full green tile + white bars
+    'ic_launcher.png': render(L, { bg: true, mark: WHITE, area: 0.46 }),
+    'ic_launcher_round.png': render(L, { bg: true, round: true, mark: WHITE, area: 0.46 }),
+    // adaptive layers (API 26+), composed by mipmap-anydpi-v26/ic_launcher.xml
+    'ic_launcher_foreground.png': render(A, { mark: WHITE, area: 0.4 }),
+    'ic_launcher_background.png': render(A, { bg: true, full: true, area: 0 }),
+    'ic_launcher_monochrome.png': render(A, { mark: WHITE, area: 0.4 }),
+  };
+  for (const [name, data] of Object.entries(writes)) {
+    fs.writeFileSync(path.join(dir, name), data);
+    const webp = path.join(dir, name.replace(/\.png$/, '.webp'));
+    if (fs.existsSync(webp)) fs.unlinkSync(webp);
+    console.log(`wrote mipmap-${dens}/${name}`);
+  }
 }
