@@ -18,16 +18,21 @@ function generateToken() {
   return sha256.hmac(HMAC_SECRET, String(window));
 }
 
-/** Resolve an S3 key to a fully-qualified audio URL. */
+/** Resolve an S3 key to a fully-qualified (remote) audio URL. */
 export function getAudioUrl(s3Key) {
   return `${AUDIO_BASE_URL}/${s3Key}`;
 }
 
-/** Fetch every saved phrase (oldest first). Read-only. */
-export async function listPhrases() {
-  const res = await fetch(`${LAMBDA_URL}/phrases`, {
-    headers: { 'x-app-token': generateToken() },
-  });
+/**
+ * Fetch every saved phrase (oldest first). Read-only.
+ *
+ * `namespace` selects a private library (sent as the `x-namespace` header, in
+ * sync with the web/TTS apps). Pass `null`/omit for the shared default library.
+ */
+export async function listPhrases(namespace) {
+  const headers = { 'x-app-token': generateToken() };
+  if (namespace) headers['x-namespace'] = namespace;
+  const res = await fetch(`${LAMBDA_URL}/phrases`, { headers });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error((body && body.error) || `HTTP ${res.status}`);
