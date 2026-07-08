@@ -59,7 +59,6 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
   const [contentH, setContentH] = useState(0);
   const fit = availH > 0 && contentH > 0 ? Math.min(1, availH / contentH) : 1;
   const accent = staying ? palette.green : palette.amber;
-  const allDone = learned.size >= deck.length;
 
   if (!p) return null;
 
@@ -79,11 +78,6 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
           <Text style={s.themeBtnText}>{themeName === 'dark' ? '☀' : '☾'}</Text>
         </Btn>
       </View>
-
-      {/* progress / review status */}
-      <Text style={[s.status, { color: allDone ? palette.green : palette.muted }]}>
-        {allDone ? '✓ ALL LEARNED — LOOPING FOR REVIEW' : `${learned.size} / ${deck.length} LEARNED`}
-      </Text>
 
       {/* now-playing card — pinned near the top at a FIXED height so the layout
           never shifts as phrases of different lengths come and go. */}
@@ -109,7 +103,9 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
             padding stays identical no matter the phrase length. */}
         <View style={s.cardFit} onLayout={(e) => setAvailH(e.nativeEvent.layout.height)}>
           <Text style={[s.cardEn, scaleFont(CARD_EN, fit)]}>{p.en}</Text>
-          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: revealed ? 1 : 0 }]}>{p.native}</Text>
+          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: (mode === 'recall' && !revealed) || revealed ? 1 : 0 }]}>
+            {mode === 'recall' && !revealed ? p.languageName : p.native}
+          </Text>
           {p.nonLatin && !!p.ro && (
             <Text style={[s.cardRo, scaleFont(CARD_RO, fit), { color: accent, opacity: revealed ? 1 : 0 }]}>{p.ro}</Text>
           )}
@@ -159,8 +155,6 @@ function makeStyles(p) {
     modeBtnTextActive: { color: p.bg },
     themeBtn: { width: 48, borderRadius: 11, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center' },
     themeBtnText: { fontSize: 18, color: p.fg },
-
-    status: { fontSize: 12, fontWeight: '800', letterSpacing: 1.4, textAlign: 'center', marginTop: 12 },
 
     // Fixed-height card pinned near the top. Content is auto-scaled to fit (see
     // the fit logic in the component) and clipped (overflow hidden), so a long
