@@ -14,5 +14,5 @@ const swallow = (p) => {
 // Light tick for ordinary controls (chips, mode buttons, toggles).
 export const tap = () => swallow(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
 
-// Heavier thud for the big primary actions (Start, Got it, Stay, Resume).
+// Heavier thud for the big primary actions (Start, Got it, Stay).
 export const tapStrong = () => swallow(Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));

@@ -27,12 +27,6 @@ function phraseMatches(p, langs, tags) {
   return p.tags.some((t) => tags.has(t)) || (wantUntagged && p.tags.length === 0);
 }
 
-// Flatten the grouped phrases that pass a filter into a single ordered deck.
-// Shared by the live selection and the saved "Resume" recipe.
-function buildDeck(groups, langs, tags) {
-  return groups.flatMap((g) => g.phrases.filter((p) => phraseMatches(p, langs, tags)));
-}
-
 // Fisher–Yates shuffle into a new array (never mutates the source deck).
 function shuffled(arr) {
   const a = [...arr];
@@ -68,7 +62,6 @@ export function Home({
   onChangeMode,
   shuffle,
   onChangeShuffle,
-  lastSession,
   onStart,
   namespace,
   onChangeNamespace,
@@ -81,10 +74,8 @@ export function Home({
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
-  // Pre-fill the builder with the last session's filters so the screen reopens
-  // where you left off (the Resume button is the true one-tap path).
-  const [filterLangs, setFilterLangs] = useState(() => new Set(lastSession?.langs ?? []));
-  const [filterTags, setFilterTags] = useState(() => new Set(lastSession?.tags ?? []));
+  const [filterLangs, setFilterLangs] = useState(() => new Set());
+  const [filterTags, setFilterTags] = useState(() => new Set());
   const [showK, setShowK] = useState(false);
   const [nsDraft, setNsDraft] = useState(namespace ?? '');
 
@@ -139,17 +130,6 @@ export function Home({
   const langsUsed = matchedGroups.length;
   const everything = filterLangs.size === 0 && filterTags.size === 0;
 
-  // Resume recipe: rebuild the saved deck against the current library. Hidden if
-  // the saved filters no longer match anything (e.g. library changed).
-  const resume = useMemo(() => {
-    if (!lastSession) return null;
-    const d = buildDeck(groups, new Set(lastSession.langs ?? []), new Set(lastSession.tags ?? []));
-    if (!d.length) return null;
-    const langs = new Set(d.map((p) => p.languageName)).size;
-    return { deck: d, langs };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, lastSession]);
-
   // Only offer options that can co-occur with the other facet (plus any already
   // selected, so they can be turned off).
   const visibleLangs = groups.filter(
@@ -177,20 +157,7 @@ export function Home({
   const handleStart = () => {
     if (count === 0) return;
     const ordered = shuffle ? shuffled(deck) : deck;
-    onStart(ordered, mode, { langs: [...filterLangs], tags: [...filterTags], mode, shuffle });
-  };
-
-  const handleResume = () => {
-    if (!resume) return;
-    const m = lastSession.mode ?? 'drill';
-    const sh = !!lastSession.shuffle;
-    const ordered = sh ? shuffled(resume.deck) : resume.deck;
-    onStart(ordered, m, {
-      langs: lastSession.langs ?? [],
-      tags: lastSession.tags ?? [],
-      mode: m,
-      shuffle: sh,
-    });
+    onStart(ordered, mode);
   };
 
   const Chip = ({ active, label, onPress }) => (
@@ -201,62 +168,43 @@ export function Home({
 
   return (
     <View style={[s.container, { paddingTop: insets.top + 12 }]}>
-      {/* header: title + theme toggle (theme lives here, not in the sync card) */}
+      {/* header: namespace (k) + sync + theme toggle, all in one row */}
       <View style={s.header}>
-        <Text style={s.title}>🚗 Drive Mode</Text>
+        <Btn onPress={() => setShowK((v) => !v)} style={s.kToggle}>
+          <Text style={s.kToggleText} numberOfLines={1}>🔑 {namespace || 'default'}</Text>
+        </Btn>
+        <Btn onPress={onSync} disabled={syncing} style={[s.syncBtn, syncing && s.disabled]}>
+          <Text style={s.syncBtnText}>
+            {syncing ? (syncProgress ? `↻ ${syncProgress.done}/${syncProgress.total}` : '↻ …') : '↓ Sync'}
+          </Text>
+        </Btn>
         <Btn onPress={onToggleTheme} style={s.themeBtn}>
           <Text style={s.themeBtnText}>{themeName === 'dark' ? '☀' : '☾'}</Text>
         </Btn>
       </View>
+      <Text style={s.syncMeta}>Synced {formatAgo(lastSyncedAt)} · {formatSize(sizeBytes)}</Text>
+      {showK && (
+        <View style={s.nsRow}>
+          <TextInput
+            value={nsDraft}
+            onChangeText={setNsDraft}
+            placeholder="library (k) — blank = default"
+            placeholderTextColor={palette.muted2}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={s.nsInput}
+          />
+          <Btn
+            onPress={() => { onChangeNamespace(nsDraft.trim()); setShowK(false); }}
+            disabled={!nsChanged}
+            style={[s.smallBtn, !nsChanged && s.disabled]}
+          >
+            <Text style={s.smallBtnText}>Set</Text>
+          </Btn>
+        </View>
+      )}
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 14 }} keyboardShouldPersistTaps="handled">
-        {/* one-tap resume of the last session */}
-        {resume && (
-          <Btn onPress={handleResume} strong style={s.resumeBtn}>
-            <Text style={s.resumeText}>▶ RESUME LAST SESSION</Text>
-            <Text style={s.resumeSub}>
-              {resume.deck.length} {resume.deck.length === 1 ? 'phrase' : 'phrases'} ·{' '}
-              {MODE_META[lastSession.mode]?.label ?? 'Drill'}
-              {lastSession.shuffle ? ' · shuffled' : ''}
-            </Text>
-          </Btn>
-        )}
-
-        {/* sync card: namespace (k) + sync */}
-        <View style={s.syncBar}>
-          <View style={s.controlRow}>
-            <Btn onPress={() => setShowK((v) => !v)} style={s.kToggle}>
-              <Text style={s.kToggleText} numberOfLines={1}>🔑 {namespace || 'default'}</Text>
-            </Btn>
-            <Btn onPress={onSync} disabled={syncing} style={[s.syncBtn, syncing && s.disabled]}>
-              <Text style={s.syncBtnText}>
-                {syncing ? (syncProgress ? `↻ ${syncProgress.done}/${syncProgress.total}` : '↻ …') : '↓ Sync'}
-              </Text>
-            </Btn>
-          </View>
-          <Text style={s.syncMeta}>Synced {formatAgo(lastSyncedAt)} · {formatSize(sizeBytes)}</Text>
-          {showK && (
-            <View style={s.nsRow}>
-              <TextInput
-                value={nsDraft}
-                onChangeText={setNsDraft}
-                placeholder="library (k) — blank = default"
-                placeholderTextColor={palette.muted2}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={s.nsInput}
-              />
-              <Btn
-                onPress={() => { onChangeNamespace(nsDraft.trim()); setShowK(false); }}
-                disabled={!nsChanged}
-                style={[s.smallBtn, !nsChanged && s.disabled]}
-              >
-                <Text style={s.smallBtnText}>Set</Text>
-              </Btn>
-            </View>
-          )}
-        </View>
-
         {/* languages */}
         <Text style={s.sectionLabel}>LANGUAGES</Text>
         <View style={s.chipWrap}>
@@ -356,24 +304,17 @@ function makeStyles(p) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: p.bg, paddingHorizontal: 18 },
 
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    title: { fontSize: 20, fontWeight: '800', color: p.fg, letterSpacing: 0.2 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
     themeBtn: { width: 48, height: 44, borderRadius: 11, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center' },
     themeBtnText: { fontSize: 18, color: p.fg },
 
-    resumeBtn: { borderRadius: 18, backgroundColor: p.green, paddingVertical: 18, alignItems: 'center', gap: 3, marginBottom: 12 },
-    resumeText: { fontSize: 20, fontWeight: '800', color: '#fff', letterSpacing: 0.4 },
-    resumeSub: { fontSize: 13.5, fontWeight: '600', color: '#fff', opacity: 0.9 },
-
-    syncBar: { backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, borderRadius: 14, padding: 10, gap: 8, marginBottom: 12 },
-    controlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    kToggle: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, paddingHorizontal: 12, justifyContent: 'center' },
+    kToggle: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, paddingHorizontal: 12, justifyContent: 'center' },
     kToggleText: { fontSize: 15, fontWeight: '700', color: p.fg },
-    nsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    nsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
     nsInput: { flex: 1, height: 44, borderRadius: 10, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, paddingHorizontal: 12, color: p.fg, fontSize: 15 },
     smallBtn: { paddingHorizontal: 16, height: 44, borderRadius: 10, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' },
     smallBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    syncMeta: { fontSize: 13, color: p.muted, fontWeight: '600' },
+    syncMeta: { fontSize: 13, color: p.muted, fontWeight: '600', marginBottom: 12 },
     syncBtn: { paddingHorizontal: 18, height: 44, borderRadius: 10, backgroundColor: p.green, alignItems: 'center', justifyContent: 'center' },
     syncBtnText: { color: '#fff', fontWeight: '800', fontSize: 14.5 },
     disabled: { opacity: 0.5 },

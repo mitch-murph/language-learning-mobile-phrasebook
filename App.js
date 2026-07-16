@@ -22,7 +22,6 @@ function App() {
   const [themeName, setThemeName] = useState('light');
   const [mode, setModeState] = useState('drill');
   const [shuffle, setShuffleState] = useState(false);
-  const [lastSession, setLastSession] = useState(null);
   const [namespace, setNamespaceState] = useState(null);
 
   const [phrases, setPhrases] = useState([]); // cached raw list for this library
@@ -54,17 +53,15 @@ function App() {
         shouldPlayInBackground: true, // keep drilling with the screen off
         interruptionMode: 'doNotMix',
       });
-      const [t, m, sh, last, ns] = await Promise.all([
+      const [t, m, sh, ns] = await Promise.all([
         storage.getTheme(),
         storage.getMode(),
         storage.getShuffle(),
-        storage.getLastSession(),
         storage.getNamespace(),
       ]);
       setThemeName(t);
       setModeState(m);
       setShuffleState(sh);
-      setLastSession(last);
       setNamespaceState(ns);
       await loadCacheFor(ns);
       setReady(true);
@@ -122,16 +119,10 @@ function App() {
     }
   }, [namespace, loadCacheFor]);
 
-  // Start a session and remember its recipe (filters + mode + shuffle) so the
-  // next launch can offer a one-tap Resume. `meta` is the snapshot to persist.
-  const startSession = useCallback((d, m, meta) => {
+  const startSession = useCallback((d, m) => {
     setDeck(d);
     setDeckMode(m);
     setView('drive');
-    if (meta) {
-      setLastSession(meta);
-      storage.setLastSession(meta);
-    }
   }, []);
 
   // Android hardware back: from a session it returns Home; from Home it falls
@@ -172,7 +163,6 @@ function App() {
             onChangeMode={onChangeMode}
             shuffle={shuffle}
             onChangeShuffle={onChangeShuffle}
-            lastSession={lastSession}
             onStart={startSession}
             namespace={namespace}
             onChangeNamespace={onChangeNamespace}
