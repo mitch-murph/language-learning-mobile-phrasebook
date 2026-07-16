@@ -10,7 +10,7 @@ import { useAudioPlayer } from 'expo-audio';
 //   - gap segments advance on a setTimeout, pausable by tracking remaining ms
 // Refs mirror state so the imperative callbacks never read stale values.
 
-export const MODES = ['normal', 'fast', 'slow', 'drill', 'fastDrill', 'recall', 'recallDrill'];
+export const MODES = ['normal', 'slow', 'drill', 'recall', 'fast', 'fastDrill', 'recallDrill', 'reverseRecall'];
 
 export const MODE_META = {
   normal: { label: 'Normal', hint: 'Hear it once' },
@@ -20,6 +20,7 @@ export const MODE_META = {
   fastDrill: { label: 'Fast Drill', hint: 'Drill, minimal pause' },
   recall: { label: 'Recall', hint: 'Translate then reveal' },
   recallDrill: { label: 'Recall Drill', hint: 'Recall, then full drill' },
+  reverseRecall: { label: 'Reverse', hint: 'Hear it, then recall the meaning' },
 };
 
 function resolveGapMs(seg, lastAudioDuration) {
@@ -81,6 +82,14 @@ const SEQUENCES = {
     { kind: 'gap', scale: 0.6, minMs: 700 },
     { kind: 'audio', src: 'normal' },
     { kind: 'gap', scale: 1.2, minMs: 1500 },
+  ],
+  // recall's mirror image: hear the native phrase first and try to recall
+  // its meaning, then the translation confirms.
+  reverseRecall: [
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 2.5, minMs: 4000, maxMs: 12000 },
+    { kind: 'audio', src: 'translation' },
+    { kind: 'gap', scale: 1.5, minMs: 2000 },
   ],
 };
 

@@ -27,6 +27,11 @@ const MODE_COLS = 4;
 const MODE_ROWS = [];
 for (let i = 0; i < MODES.length; i += MODE_COLS) MODE_ROWS.push(MODES.slice(i, i + MODE_COLS));
 
+// Height of the absolutely-positioned controls block below (stayBtn 60 + gap
+// 12 + controlRow 96 + controls' own paddingTop 12), so the replay list can
+// reserve exactly that much space instead of sizing itself behind it.
+const CONTROLS_HEIGHT = 180;
+
 // Scale a card text's size by the fit factor (1 = natural). Returns only the
 // size props so it can layer over the base style without dropping its colour.
 function scaleFont(base, f) {
@@ -55,8 +60,14 @@ export function Player({ deck, initialMode, palette }) {
 
   const player = usePlayer(deck, initialMode);
   const { phrase: p, playing, staying, mode, loop, learned, history, segIdx } = player;
-  const isRecallMode = mode === 'recall' || mode === 'recallDrill';
-  const revealed = !isRecallMode || segIdx >= 2;
+  // recall/recallDrill hide the native text until the confirming audio plays
+  // (you hear the translation and try to produce the native phrase).
+  // reverseRecall hides the English text instead (you hear the native phrase
+  // and try to recall its meaning) — same mechanic, opposite direction.
+  const hideNative = mode === 'recall' || mode === 'recallDrill';
+  const hideEnglish = mode === 'reverseRecall';
+  const nativeRevealed = !hideNative || segIdx >= 2;
+  const englishRevealed = !hideEnglish || segIdx >= 2;
 
   // Auto-fit: a hidden full-size measurer reports the content's natural height
   // (independent of the fit factor, so there's no measure→scale→measure loop),
@@ -83,7 +94,7 @@ export function Player({ deck, initialMode, palette }) {
               const active = mode === m;
               return (
                 <Btn key={m} onPress={() => player.setMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
-                  <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{MODE_META[m].label}</Text>
+                  <Text style={[s.modeBtnText, active && s.modeBtnTextActive]} numberOfLines={1}>{MODE_META[m].label}</Text>
                 </Btn>
               );
             })}
@@ -114,12 +125,14 @@ export function Player({ deck, initialMode, palette }) {
         {/* Visible copy: full width with the font scaled to fit, so horizontal
             padding stays identical no matter the phrase length. */}
         <View style={s.cardFit} onLayout={(e) => setAvailH(e.nativeEvent.layout.height)}>
-          <Text style={[s.cardEn, scaleFont(CARD_EN, fit)]}>{p.en}</Text>
-          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: (isRecallMode && !revealed) || revealed ? 1 : 0 }]}>
-            {isRecallMode && !revealed ? p.languageName : p.native}
+          <Text style={[s.cardEn, scaleFont(CARD_EN, fit)]}>
+            {hideEnglish && !englishRevealed ? '?' : p.en}
+          </Text>
+          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit)]}>
+            {hideNative && !nativeRevealed ? p.languageName : p.native}
           </Text>
           {p.nonLatin && !!p.ro && (
-            <Text style={[s.cardRo, scaleFont(CARD_RO, fit), { color: accent, opacity: revealed ? 1 : 0 }]}>{p.ro}</Text>
+            <Text style={[s.cardRo, scaleFont(CARD_RO, fit), { color: accent, opacity: nativeRevealed ? 1 : 0 }]}>{p.ro}</Text>
           )}
         </View>
       </View>
@@ -130,7 +143,7 @@ export function Player({ deck, initialMode, palette }) {
       {history.length > 0 && (
         <View style={s.replayWrap}>
           <Text style={s.replayLabel}>RECENTLY PLAYED · TAP TO REPLAY</Text>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.replayScrollContent}>
+          <ScrollView style={s.replayScroll} showsVerticalScrollIndicator={false} contentContainerStyle={s.replayScrollContent}>
             {history.map((idx) => (
               <ReplayRow key={idx} p={deck[idx]} done={learned.has(idx)} styles={s} onClick={() => player.jumpTo(idx)} />
             ))}
@@ -168,7 +181,7 @@ function makeStyles(p) {
     // row doesn't leave ragged empty space on the right.
     modeGrid: { gap: 6 },
     modeRowLine: { flexDirection: 'row', gap: 6 },
-    modeBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center' },
+    modeBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center', justifyContent: 'center' },
     modeBtnActive: { backgroundColor: p.fg, borderColor: p.fg },
     modeBtnText: { fontSize: 12.5, fontWeight: '700', color: p.muted },
     modeBtnTextActive: { color: p.bg },
@@ -188,11 +201,13 @@ function makeStyles(p) {
     cardNative: { ...CARD_NATIVE, color: p.fg },
     cardRo: { ...CARD_RO },
 
-    // flex:1 bounds the ScrollView to the remaining space above the pinned
-    // controls, so a longer history scrolls in place instead of growing the
-    // layout or pushing the card around.
-    replayWrap: { flex: 1, marginTop: 14 },
+    // flex:1 bounds this to the remaining space above the pinned controls —
+    // marginBottom reserves the controls' own height so that space doesn't
+    // extend behind them, and the ScrollView (itself flex:1, not just its
+    // content) gets a real, correctly-sized viewport to scroll within.
+    replayWrap: { flex: 1, marginTop: 14, marginBottom: CONTROLS_HEIGHT },
     replayLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: p.muted2, marginBottom: 4, paddingHorizontal: 4 },
+    replayScroll: { flex: 1 },
     replayScrollContent: { paddingBottom: 4 },
     replayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: p.surface, marginBottom: 6 },
     replayEn: { fontSize: 17, fontWeight: '700', color: p.fg },
