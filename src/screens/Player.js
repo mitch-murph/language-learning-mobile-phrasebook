@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import { usePlayer, MODES, MODE_META } from '../audio/usePlayer';
@@ -19,6 +19,13 @@ import { Btn } from '../ui';
 const CARD_EN = { fontSize: 27, fontWeight: '700', lineHeight: 33 };
 const CARD_NATIVE = { fontSize: 42, fontWeight: '600', lineHeight: 52, marginTop: 16 };
 const CARD_RO = { fontSize: 25, fontWeight: '600', lineHeight: 31, marginTop: 10 };
+
+// Chunk MODES into fixed-size rows so each row's buttons stretch (flex:1) to
+// fill the full width edge-to-edge — content-hugging chips left ragged gaps
+// on the right of each wrapped line instead of using the space.
+const MODE_COLS = 4;
+const MODE_ROWS = [];
+for (let i = 0; i < MODES.length; i += MODE_COLS) MODE_ROWS.push(MODES.slice(i, i + MODE_COLS));
 
 // Scale a card text's size by the fit factor (1 = natural). Returns only the
 // size props so it can layer over the base style without dropping its colour.
@@ -41,14 +48,15 @@ function ReplayRow({ p, done, onClick, styles }) {
   );
 }
 
-export function Player({ deck, initialMode, palette, themeName, onToggleTheme }) {
+export function Player({ deck, initialMode, palette }) {
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(palette), [palette]);
 
   const player = usePlayer(deck, initialMode);
   const { phrase: p, playing, staying, mode, loop, learned, history, segIdx } = player;
-  const revealed = mode !== 'recall' || segIdx >= 2;
+  const isRecallMode = mode === 'recall' || mode === 'recallDrill';
+  const revealed = !isRecallMode || segIdx >= 2;
 
   // Auto-fit: a hidden full-size measurer reports the content's natural height
   // (independent of the fit factor, so there's no measure→scale→measure loop),
@@ -64,19 +72,23 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
 
   return (
     <View style={[s.container, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 14 }]}>
-      {/* mode segmented + theme toggle (use the Android back button to exit) */}
-      <View style={s.modeRow}>
-        {MODES.map((m) => {
-          const active = mode === m;
-          return (
-            <Btn key={m} onPress={() => player.setMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
-              <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{MODE_META[m].label}</Text>
-            </Btn>
-          );
-        })}
-        <Btn onPress={onToggleTheme} style={s.themeBtn}>
-          <Text style={s.themeBtnText}>{themeName === 'dark' ? '☀' : '☾'}</Text>
-        </Btn>
+      {/* mode picker — a fixed-column grid so each row's buttons stretch to
+          fill the width edge-to-edge, growing extra rows as modes grow.
+          Theme toggle lives on Home only; it's a set-once preference, not
+          worth the space here. (Use the Android back button to exit.) */}
+      <View style={s.modeGrid}>
+        {MODE_ROWS.map((row, ri) => (
+          <View key={ri} style={s.modeRowLine}>
+            {row.map((m) => {
+              const active = mode === m;
+              return (
+                <Btn key={m} onPress={() => player.setMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
+                  <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{MODE_META[m].label}</Text>
+                </Btn>
+              );
+            })}
+          </View>
+        ))}
       </View>
 
       {/* now-playing card — pinned near the top at a FIXED height so the layout
@@ -103,8 +115,8 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
             padding stays identical no matter the phrase length. */}
         <View style={s.cardFit} onLayout={(e) => setAvailH(e.nativeEvent.layout.height)}>
           <Text style={[s.cardEn, scaleFont(CARD_EN, fit)]}>{p.en}</Text>
-          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: (mode === 'recall' && !revealed) || revealed ? 1 : 0 }]}>
-            {mode === 'recall' && !revealed ? p.languageName : p.native}
+          <Text style={[s.cardNative, scaleFont(CARD_NATIVE, fit), { opacity: (isRecallMode && !revealed) || revealed ? 1 : 0 }]}>
+            {isRecallMode && !revealed ? p.languageName : p.native}
           </Text>
           {p.nonLatin && !!p.ro && (
             <Text style={[s.cardRo, scaleFont(CARD_RO, fit), { color: accent, opacity: revealed ? 1 : 0 }]}>{p.ro}</Text>
@@ -112,14 +124,17 @@ export function Player({ deck, initialMode, palette, themeName, onToggleTheme })
         </View>
       </View>
 
-      {/* recently played — flows under the card and overflows behind the
-          controls, so its height never pushes the card around. */}
+      {/* recently played — scrolls vertically within its fixed slot (flows
+          under the card, clipped above the pinned controls), so a longer
+          history never pushes the card or controls around. */}
       {history.length > 0 && (
         <View style={s.replayWrap}>
           <Text style={s.replayLabel}>RECENTLY PLAYED · TAP TO REPLAY</Text>
-          {history.slice(0, 2).map((idx) => (
-            <ReplayRow key={idx} p={deck[idx]} done={learned.has(idx)} styles={s} onClick={() => player.jumpTo(idx)} />
-          ))}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.replayScrollContent}>
+            {history.map((idx) => (
+              <ReplayRow key={idx} p={deck[idx]} done={learned.has(idx)} styles={s} onClick={() => player.jumpTo(idx)} />
+            ))}
+          </ScrollView>
         </View>
       )}
 
@@ -148,13 +163,15 @@ function makeStyles(p) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: p.bg, paddingHorizontal: 18 },
 
-    modeRow: { flexDirection: 'row', gap: 6, alignItems: 'stretch' },
+    // A fixed-column grid (see MODE_ROWS) instead of natural wrapping: every
+    // row's buttons stretch (flex:1) to fill the full width, so a short last
+    // row doesn't leave ragged empty space on the right.
+    modeGrid: { gap: 6 },
+    modeRowLine: { flexDirection: 'row', gap: 6 },
     modeBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center' },
     modeBtnActive: { backgroundColor: p.fg, borderColor: p.fg },
-    modeBtnText: { fontSize: 13, fontWeight: '700', color: p.muted },
+    modeBtnText: { fontSize: 12.5, fontWeight: '700', color: p.muted },
     modeBtnTextActive: { color: p.bg },
-    themeBtn: { width: 48, borderRadius: 11, borderWidth: 1, borderColor: p.line, backgroundColor: p.surface, alignItems: 'center', justifyContent: 'center' },
-    themeBtnText: { fontSize: 18, color: p.fg },
 
     // Fixed-height card pinned near the top. Content is auto-scaled to fit (see
     // the fit logic in the component) and clipped (overflow hidden), so a long
@@ -171,10 +188,12 @@ function makeStyles(p) {
     cardNative: { ...CARD_NATIVE, color: p.fg },
     cardRo: { ...CARD_RO },
 
-    // flex:1 so it fills the gap down to the bottom; overflow hidden + the
-    // absolute controls on top mean extra rows simply disappear behind them.
-    replayWrap: { flex: 1, marginTop: 14, overflow: 'hidden' },
+    // flex:1 bounds the ScrollView to the remaining space above the pinned
+    // controls, so a longer history scrolls in place instead of growing the
+    // layout or pushing the card around.
+    replayWrap: { flex: 1, marginTop: 14 },
     replayLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1.4, color: p.muted2, marginBottom: 4, paddingHorizontal: 4 },
+    replayScrollContent: { paddingBottom: 4 },
     replayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: p.surface, marginBottom: 6 },
     replayEn: { fontSize: 17, fontWeight: '700', color: p.fg },
     replayNative: { fontSize: 15, fontWeight: '500', color: p.muted, marginTop: 2 },

@@ -191,8 +191,6 @@ function App() {
             deck={deck}
             initialMode={deckMode}
             palette={palette}
-            themeName={themeName}
-            onToggleTheme={onToggleTheme}
           />
         )}
 

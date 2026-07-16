@@ -294,7 +294,7 @@ export function Home({
             Shuffle order · {shuffle ? 'ON' : 'OFF'}
           </Text>
         </Btn>
-        <View style={s.modeRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.modeRow} contentContainerStyle={s.modeRowContent}>
           {MODES.map((m) => {
             const active = mode === m;
             return (
@@ -303,7 +303,7 @@ export function Home({
               </Btn>
             );
           })}
-        </View>
+        </ScrollView>
         <Btn
           onPress={handleStart}
           strong
@@ -365,8 +365,11 @@ function makeStyles(p) {
     shuffleBtnActive: { backgroundColor: p.green, borderColor: p.green },
     shuffleText: { fontSize: 15.5, fontWeight: '800', color: p.muted, letterSpacing: 0.3 },
     shuffleTextActive: { color: '#fff' },
-    modeRow: { flexDirection: 'row', gap: 7 },
-    modeBtn: { flex: 1, paddingVertical: 15, borderRadius: 13, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center' },
+    // Horizontally scrollable so adding more modes never shrinks touch targets
+    // or grows the pinned footer — chips keep a natural (not flex) width.
+    modeRow: { flexGrow: 0 },
+    modeRowContent: { flexDirection: 'row', gap: 7, paddingRight: 4 },
+    modeBtn: { minWidth: 96, paddingVertical: 15, paddingHorizontal: 18, borderRadius: 13, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, alignItems: 'center' },
     modeBtnActive: { backgroundColor: p.fg, borderColor: p.fg },
     modeBtnText: { fontSize: 14.5, fontWeight: '700', color: p.muted },
     modeBtnTextActive: { color: p.bg },

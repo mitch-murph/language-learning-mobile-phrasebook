@@ -10,13 +10,16 @@ import { useAudioPlayer } from 'expo-audio';
 //   - gap segments advance on a setTimeout, pausable by tracking remaining ms
 // Refs mirror state so the imperative callbacks never read stale values.
 
-export const MODES = ['normal', 'slow', 'drill', 'recall'];
+export const MODES = ['normal', 'fast', 'slow', 'drill', 'fastDrill', 'recall', 'recallDrill'];
 
 export const MODE_META = {
   normal: { label: 'Normal', hint: 'Hear it once' },
+  fast: { label: 'Fast', hint: 'Normal, minimal pause' },
   slow: { label: 'Slow', hint: 'Slow playback' },
   drill: { label: 'Drill', hint: 'Normal → slow → normal' },
+  fastDrill: { label: 'Fast Drill', hint: 'Drill, minimal pause' },
   recall: { label: 'Recall', hint: 'Translate then reveal' },
+  recallDrill: { label: 'Recall Drill', hint: 'Recall, then full drill' },
 };
 
 function resolveGapMs(seg, lastAudioDuration) {
@@ -48,11 +51,36 @@ const SEQUENCES = {
     { kind: 'audio', src: 'normal' },
     { kind: 'gap', scale: 1.2, minMs: 1500 },
   ],
+  fast: [
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 0.12, minMs: 120, maxMs: 400 },
+  ],
+  fastDrill: [
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 0.12, minMs: 120, maxMs: 400 },
+    { kind: 'audio', src: 'slow' },
+    { kind: 'gap', scale: 0.12, minMs: 120, maxMs: 400 },
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 0.12, minMs: 120, maxMs: 400 },
+  ],
   recall: [
     { kind: 'audio', src: 'translation' },
     { kind: 'gap', scale: 2.5, minMs: 4000, maxMs: 12000 },
     { kind: 'audio', src: 'normal' },
     { kind: 'gap', scale: 1.5, minMs: 2000 },
+  ],
+  // Recall's translation lead-in (gap doubled, to give more time to recall
+  // before the drill reveal), then a full drill rep. Mirrors
+  // language-learning-desktop-phrasebook's useQueuePlayer.ts SEQUENCES.
+  recallDrill: [
+    { kind: 'audio', src: 'translation' },
+    { kind: 'gap', scale: 5, minMs: 8000, maxMs: 24000 },
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 0.6, minMs: 700 },
+    { kind: 'audio', src: 'slow' },
+    { kind: 'gap', scale: 0.6, minMs: 700 },
+    { kind: 'audio', src: 'normal' },
+    { kind: 'gap', scale: 1.2, minMs: 1500 },
   ],
 };
 
