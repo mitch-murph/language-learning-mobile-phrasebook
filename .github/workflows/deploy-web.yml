@@ -1,0 +1,42 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Build
+        run: |
+          npm ci
+          npm run build:web
+        env:
+          EXPO_WEB_BASE_URL: /language-learning-mobile-phrasebook
+          EXPO_PUBLIC_HMAC_SECRET: ${{ secrets.HMAC_SECRET }}
+          EXPO_PUBLIC_LAMBDA_URL: ${{ secrets.LAMBDA_URL }}
+          EXPO_PUBLIC_AUDIO_BASE_URL: ${{ secrets.AUDIO_BASE_URL }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
+        id: deployment
