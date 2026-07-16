@@ -8,6 +8,7 @@ const NS_KEY = 'phrasebook.namespace';
 const MODE_KEY = 'phrasebook.mode';
 const THEME_KEY = 'phrasebook.theme';
 const SHUFFLE_KEY = 'phrasebook.shuffle';
+const INCLUDE_HIDDEN_KEY = 'phrasebook.includeHidden';
 
 /**
  * The selected library ("namespace"), the mobile equivalent of the web app's
@@ -52,4 +53,13 @@ export async function getShuffle() {
 
 export async function setShuffle(on) {
   await AsyncStorage.setItem(SHUFFLE_KEY, on ? '1' : '0');
+}
+
+/** Whether to include phrases marked `hide: true` in the deck builder. Defaults to off. */
+export async function getIncludeHidden() {
+  return (await AsyncStorage.getItem(INCLUDE_HIDDEN_KEY)) === '1';
+}
+
+export async function setIncludeHidden(on) {
+  await AsyncStorage.setItem(INCLUDE_HIDDEN_KEY, on ? '1' : '0');
 }

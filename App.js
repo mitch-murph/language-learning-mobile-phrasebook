@@ -22,6 +22,7 @@ function App() {
   const [themeName, setThemeName] = useState('light');
   const [mode, setModeState] = useState('drill');
   const [shuffle, setShuffleState] = useState(false);
+  const [includeHidden, setIncludeHiddenState] = useState(false);
   const [namespace, setNamespaceState] = useState(null);
 
   const [phrases, setPhrases] = useState([]); // cached raw list for this library
@@ -53,15 +54,17 @@ function App() {
         shouldPlayInBackground: true, // keep drilling with the screen off
         interruptionMode: 'doNotMix',
       });
-      const [t, m, sh, ns] = await Promise.all([
+      const [t, m, sh, ih, ns] = await Promise.all([
         storage.getTheme(),
         storage.getMode(),
         storage.getShuffle(),
+        storage.getIncludeHidden(),
         storage.getNamespace(),
       ]);
       setThemeName(t);
       setModeState(m);
       setShuffleState(sh);
+      setIncludeHiddenState(ih);
       setNamespaceState(ns);
       await loadCacheFor(ns);
       setReady(true);
@@ -89,6 +92,11 @@ function App() {
   const onChangeShuffle = useCallback((on) => {
     setShuffleState(on);
     storage.setShuffle(on);
+  }, []);
+
+  const onChangeIncludeHidden = useCallback((on) => {
+    setIncludeHiddenState(on);
+    storage.setIncludeHidden(on);
   }, []);
 
   const onChangeNamespace = useCallback(
@@ -163,6 +171,8 @@ function App() {
             onChangeMode={onChangeMode}
             shuffle={shuffle}
             onChangeShuffle={onChangeShuffle}
+            includeHidden={includeHidden}
+            onChangeIncludeHidden={onChangeIncludeHidden}
             onStart={startSession}
             namespace={namespace}
             onChangeNamespace={onChangeNamespace}

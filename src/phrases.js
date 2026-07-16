@@ -38,6 +38,7 @@ export function toDeckPhrase(p, namespace) {
     slowUrl: resolveUrl(namespace, p.slowS3Key),
     translationUrl: p.translationS3Key ? resolveUrl(namespace, p.translationS3Key) : undefined,
     tags: p.tags ?? [],
+    hide: !!p.hide,
   };
 }
 

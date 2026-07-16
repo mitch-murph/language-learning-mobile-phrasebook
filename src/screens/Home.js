@@ -62,6 +62,8 @@ export function Home({
   onChangeMode,
   shuffle,
   onChangeShuffle,
+  includeHidden,
+  onChangeIncludeHidden,
   onStart,
   namespace,
   onChangeNamespace,
@@ -79,11 +81,22 @@ export function Home({
   const [showK, setShowK] = useState(false);
   const [nsDraft, setNsDraft] = useState(namespace ?? '');
 
+  // Global toggle, independent of the language/tag facets below: hidden
+  // phrases are dropped before anything else sees the library, unless the
+  // "Hidden" chip is selected to bring them back in.
+  const anyHidden = useMemo(() => groups.some((g) => g.phrases.some((p) => p.hide)), [groups]);
+  const visibleGroups = useMemo(() => {
+    if (includeHidden) return groups;
+    return groups
+      .map((g) => ({ ...g, phrases: g.phrases.filter((p) => !p.hide) }))
+      .filter((g) => g.phrases.length > 0);
+  }, [groups, includeHidden]);
+
   const allTags = useMemo(() => {
     const set = new Set();
-    groups.forEach((g) => g.phrases.forEach((p) => p.tags.forEach((t) => set.add(t))));
+    visibleGroups.forEach((g) => g.phrases.forEach((p) => p.tags.forEach((t) => set.add(t))));
     return [...set].sort();
-  }, [groups]);
+  }, [visibleGroups]);
 
   const langFilterMatches = (p) => filterLangs.size === 0 || filterLangs.has(p.languageName);
   const tagFilterMatches = (p) => {
@@ -97,17 +110,17 @@ export function Home({
   // what's already picked. Currently-selected items always remain (to deselect).
   const availLangs = useMemo(() => {
     const set = new Set();
-    groups.forEach((g) => {
+    visibleGroups.forEach((g) => {
       if (g.phrases.some(tagFilterMatches)) set.add(g.languageName);
     });
     return set;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, filterTags]);
+  }, [visibleGroups, filterTags]);
 
   const availTags = useMemo(() => {
     const set = new Set();
     let untagged = false;
-    groups.forEach((g) =>
+    visibleGroups.forEach((g) =>
       g.phrases.forEach((p) => {
         if (!langFilterMatches(p)) return;
         p.tags.forEach((t) => set.add(t));
@@ -116,14 +129,14 @@ export function Home({
     );
     return { set, untagged };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, filterLangs]);
+  }, [visibleGroups, filterLangs]);
 
   const matchedGroups = useMemo(() => {
-    return groups
+    return visibleGroups
       .map((g) => ({ ...g, phrases: g.phrases.filter((p) => phraseMatches(p, filterLangs, filterTags)) }))
       .filter((g) => g.phrases.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, filterLangs, filterTags]);
+  }, [visibleGroups, filterLangs, filterTags]);
 
   const deck = useMemo(() => matchedGroups.flatMap((g) => g.phrases), [matchedGroups]);
   const count = deck.length;
@@ -132,7 +145,7 @@ export function Home({
 
   // Only offer options that can co-occur with the other facet (plus any already
   // selected, so they can be turned off).
-  const visibleLangs = groups.filter(
+  const visibleLangs = visibleGroups.filter(
     (g) => availLangs.has(g.languageName) || filterLangs.has(g.languageName),
   );
   const visibleTags = allTags.filter((t) => availTags.set.has(t) || filterTags.has(t));
@@ -220,10 +233,17 @@ export function Home({
         </View>
 
         {/* tags — only those present in the selected languages */}
-        {(visibleTags.length > 0 || showUntagged) && (
+        {(visibleTags.length > 0 || showUntagged || anyHidden) && (
           <>
             <Text style={s.sectionLabel}>TAGS</Text>
             <View style={s.chipWrap}>
+              {anyHidden && (
+                <Chip
+                  active={includeHidden}
+                  label="Hidden"
+                  onPress={() => onChangeIncludeHidden(!includeHidden)}
+                />
+              )}
               {visibleTags.map((tag) => (
                 <Chip key={tag} active={filterTags.has(tag)} label={tag} onPress={() => toggleTag(tag)} />
               ))}
