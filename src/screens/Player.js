@@ -86,7 +86,8 @@ export function Player({ deck, initialMode, palette }) {
       {/* mode picker — a fixed-column grid so each row's buttons stretch to
           fill the width edge-to-edge, growing extra rows as modes grow.
           Theme toggle lives on Home only; it's a set-once preference, not
-          worth the space here. (Use the Android back button to exit.) */}
+          worth the space here. (Exit via Android hardware back or, on web,
+          the browser's back button — see App.js.) */}
       <View style={s.modeGrid}>
         {MODE_ROWS.map((row, ri) => (
           <View key={ri} style={s.modeRowLine}>

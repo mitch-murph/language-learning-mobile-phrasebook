@@ -147,6 +147,12 @@ function App() {
     setDeck(d);
     setDeckMode(m);
     setView('drive');
+    // Web only: push a history entry so the browser's back button pops it
+    // (firing popstate below) instead of navigating away from the page —
+    // there's no hardware back button to rely on there.
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.history.pushState({ view: 'drive' }, '');
+    }
   }, []);
 
   // Android hardware back: from a session it returns Home; from Home it falls
@@ -164,6 +170,17 @@ function App() {
       return false; // Home: let the OS close the app
     });
     return () => sub.remove();
+  }, []);
+
+  // Web equivalent of the hardware back handler above: startSession pushed a
+  // history entry, so browser Back/Forward during a session pops/repushes it
+  // and fires popstate here rather than leaving the page. The deck itself is
+  // still sitting in state either way, so Forward can just resume it.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onPopState = (e) => setView(e.state?.view === 'drive' ? 'drive' : 'home');
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   if (!ready) {
