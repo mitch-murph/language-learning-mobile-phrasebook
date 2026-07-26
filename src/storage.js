@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Small typed wrappers around AsyncStorage for the few preferences we persist.
@@ -28,6 +29,31 @@ export async function setNamespace(ns) {
   } else {
     await AsyncStorage.removeItem(NS_KEY);
   }
+}
+
+/**
+ * Web only: applies a `#k=…` URL fragment to the stored namespace, mirroring
+ * the web app's bookmarkable-library mechanism (language-learning-drive-phrasebook's
+ * src/api/namespace.ts — must stay in sync with it). No-op on native, where
+ * there's no URL bar to carry the param.
+ *
+ *   #k=marmalade  → switch to private library "marmalade"
+ *   #k=           → switch back to the shared "default" library
+ *   (no k param)  → no change; keep whatever was last selected
+ *
+ * Returns true if the active namespace actually changed.
+ */
+export async function applyNamespaceHash() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+
+  const raw = window.location.hash.replace(/^#/, '');
+  const params = new URLSearchParams(raw);
+  if (!params.has('k')) return false;
+
+  const prev = await getNamespace();
+  await setNamespace(params.get('k'));
+  const next = await getNamespace();
+  return next !== prev;
 }
 
 export async function getMode() {

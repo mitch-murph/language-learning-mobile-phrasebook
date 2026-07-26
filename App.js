@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Platform, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { setAudioModeAsync } from 'expo-audio';
@@ -54,6 +54,9 @@ function App() {
         shouldPlayInBackground: true, // keep drilling with the screen off
         interruptionMode: 'doNotMix',
       });
+      // Web only: a `#k=…` fragment overrides the stored library, mirroring
+      // the drive-phrasebook web app so a link can be bookmarked per-library.
+      await storage.applyNamespaceHash();
       const [t, m, sh, ih, ns] = await Promise.all([
         storage.getTheme(),
         storage.getMode(),
@@ -75,6 +78,19 @@ function App() {
     () => (phrases.length ? groupByLanguage(phrases, namespace) : []),
     [phrases, namespace],
   );
+
+  // Web only: react to later hash edits the same way the drive-phrasebook web
+  // app does — changing `#k=` and pressing Enter is a same-document
+  // navigation, so listen for `hashchange` and reload when the library
+  // actually changes to force a refetch.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onHashChange = async () => {
+      if (await storage.applyNamespaceHash()) window.location.reload();
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   const onToggleTheme = useCallback(() => {
     setThemeName((t) => {
