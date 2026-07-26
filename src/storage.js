@@ -65,7 +65,7 @@ export async function setMode(mode) {
 }
 
 export async function getTheme() {
-  return (await AsyncStorage.getItem(THEME_KEY)) || 'light';
+  return (await AsyncStorage.getItem(THEME_KEY)) || 'dark';
 }
 
 export async function setTheme(theme) {

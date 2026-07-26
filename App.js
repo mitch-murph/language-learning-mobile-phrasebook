@@ -19,7 +19,7 @@ import { Player } from './src/screens/Player';
 // to remote S3 for anything not yet downloaded.
 function App() {
   const [ready, setReady] = useState(false);
-  const [themeName, setThemeName] = useState('light');
+  const [themeName, setThemeName] = useState('dark');
   const [mode, setModeState] = useState('drill');
   const [shuffle, setShuffleState] = useState(false);
   const [includeHidden, setIncludeHiddenState] = useState(false);
