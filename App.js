@@ -9,6 +9,7 @@ import { paletteFor } from './src/theme';
 import * as storage from './src/storage';
 import { Home } from './src/screens/Home';
 import { Player } from './src/screens/Player';
+import { Quiz } from './src/screens/Quiz';
 
 // Top-level orchestrator and view machine (home → drive). No navigation library
 // — like the web app, a plain `view` state is enough for two screens.
@@ -78,6 +79,9 @@ function App() {
     () => (phrases.length ? groupByLanguage(phrases, namespace) : []),
     [phrases, namespace],
   );
+  // Full library, flattened — the distractor pool for Quiz mode's multiple
+  // choice (independent of whatever filters built the session deck itself).
+  const allPhrases = useMemo(() => groups.flatMap((g) => g.phrases), [groups]);
 
   // Web only: react to later hash edits the same way the drive-phrasebook web
   // app does — changing `#k=` and pressing Enter is a same-document
@@ -146,24 +150,27 @@ function App() {
   const startSession = useCallback((d, m) => {
     setDeck(d);
     setDeckMode(m);
-    setView('drive');
+    // Quiz routes to its own screen instead of Player's cadence engine.
+    const v = m === 'quiz' ? 'quiz' : 'drive';
+    setView(v);
     // Web only: push a history entry so the browser's back button pops it
     // (firing popstate below) instead of navigating away from the page —
     // there's no hardware back button to rely on there.
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      window.history.pushState({ view: 'drive' }, '');
+      window.history.pushState({ view: v }, '');
     }
   }, []);
 
-  // Android hardware back: from a session it returns Home; from Home it falls
-  // through to the OS default (closes the app). Replaces the old in-app button.
-  // Subscribe once and read the current view from a ref so we never re-register
-  // (and never tear down) the handler while navigating.
+  // Android hardware back: from a session (drive or quiz) it returns Home;
+  // from Home it falls through to the OS default (closes the app). Replaces
+  // the old in-app button. Subscribe once and read the current view from a
+  // ref so we never re-register (and never tear down) the handler while
+  // navigating.
   const viewRef = useRef(view);
   viewRef.current = view;
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (viewRef.current === 'drive') {
+      if (viewRef.current === 'drive' || viewRef.current === 'quiz') {
         setView('home');
         return true; // handled — don't exit the app
       }
@@ -178,7 +185,10 @@ function App() {
   // still sitting in state either way, so Forward can just resume it.
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
-    const onPopState = (e) => setView(e.state?.view === 'drive' ? 'drive' : 'home');
+    const onPopState = (e) => {
+      const v = e.state?.view;
+      setView(v === 'drive' || v === 'quiz' ? v : 'home');
+    };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
@@ -223,6 +233,16 @@ function App() {
             key={deck.map((p) => p.id).join(',')}
             deck={deck}
             initialMode={deckMode}
+            palette={palette}
+          />
+        )}
+
+        {view === 'quiz' && (
+          <Quiz
+            // Remount on a fresh session so the engine resets cleanly.
+            key={deck.map((p) => p.id).join(',')}
+            deck={deck}
+            pool={allPhrases}
             palette={palette}
           />
         )}

@@ -14,6 +14,7 @@ export const THEMES = {
     accent: '#1f6feb', // primary action
     green: '#15803d', // "got it" / selected / staying — deep enough for white text
     amber: '#b56b00', // active phrase border
+    danger: '#c0392b', // wrong quiz answer
   },
   dark: {
     name: 'dark',
@@ -26,6 +27,7 @@ export const THEMES = {
     accent: '#4a8bf0',
     green: '#34c77b',
     amber: '#e0a33a',
+    danger: '#f05252', // wrong quiz answer
   },
 };
 

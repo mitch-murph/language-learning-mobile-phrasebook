@@ -19,6 +19,13 @@ import { Btn } from '../ui';
 
 const UNTAGGED = ' untagged'; // sentinel tag for phrases with no tags
 
+// Quiz is a Home-only mode — it routes to its own screen (App.js) instead of
+// Player's cadence engine, so it's deliberately kept out of MODES/MODE_META
+// (which Player's in-session mode grid also reads) and only added here.
+const QUIZ_MODE = 'quiz';
+const HOME_MODES = [...MODES, QUIZ_MODE];
+const HOME_MODE_META = { ...MODE_META, [QUIZ_MODE]: { label: 'Quiz', hint: 'Multiple choice' } };
+
 // Does a phrase pass a (languages × tags) filter? Empty sets mean "no constraint".
 function phraseMatches(p, langs, tags) {
   if (langs.size && !langs.has(p.languageName)) return false;
@@ -295,11 +302,11 @@ export function Home({
           </Text>
         </Btn>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.modeRow} contentContainerStyle={s.modeRowContent}>
-          {MODES.map((m) => {
+          {HOME_MODES.map((m) => {
             const active = mode === m;
             return (
               <Btn key={m} onPress={() => onChangeMode(m)} style={[s.modeBtn, active && s.modeBtnActive]}>
-                <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{MODE_META[m].label}</Text>
+                <Text style={[s.modeBtnText, active && s.modeBtnTextActive]}>{HOME_MODE_META[m].label}</Text>
               </Btn>
             );
           })}
