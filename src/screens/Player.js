@@ -164,8 +164,8 @@ export function Player({ deck, initialMode, palette }) {
             <Text style={s.playBtnText}>{playing ? '❙❙' : '▶'}</Text>
             <Text style={s.playBtnLabel}>{playing ? 'PAUSE' : 'PLAY'}</Text>
           </Btn>
-          <Btn onPress={player.gotIt} strong style={s.gotItBtn}>
-            <Text style={s.gotItText}>✓ GOT IT</Text>
+          <Btn onPress={player.skipAhead} strong style={s.gotItBtn}>
+            <Text style={s.gotItText}>GOT IT ▸▸</Text>
           </Btn>
         </View>
       </View>

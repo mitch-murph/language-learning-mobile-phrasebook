@@ -298,6 +298,39 @@ export function usePlayer(deck, initialMode = 'drill') {
     advanceRef.current();
   };
 
+  // Skip ahead to the next audio in the *other language* (e.g. recall: cut the
+  // recall gap and go straight to the answer). Speed changes within the same
+  // language don't count, so in drill/normal/etc. — or once the switch has
+  // happened — it behaves like gotIt: mark learned and move to the next phrase.
+  const skipAhead = () => {
+    const seq = SEQUENCES[S.current.mode];
+    const isTrans = (seg) => seg.src === 'translation';
+    let cur = null;
+    for (let i = Math.min(segIdxRef.current, seq.length - 1); i >= 0; i--) {
+      if (seq[i].kind === 'audio') {
+        cur = isTrans(seq[i]);
+        break;
+      }
+    }
+    let next = -1;
+    for (let i = segIdxRef.current + 1; i < seq.length; i++) {
+      if (seq[i].kind === 'audio' && cur !== null && isTrans(seq[i]) !== cur) {
+        next = i;
+        break;
+      }
+    }
+    if (next < 0) {
+      gotIt();
+      return;
+    }
+    S.current.playing = true;
+    setPlaying(true);
+    clearGap();
+    safe(() => player.pause());
+    expectFinishRef.current = false;
+    startSegmentRef.current(next);
+  };
+
   const jumpTo = (idx) => {
     S.current.current = idx;
     setCurrent(idx);
@@ -326,6 +359,7 @@ export function usePlayer(deck, initialMode = 'drill') {
     togglePlay,
     toggleStay,
     gotIt,
+    skipAhead,
     jumpTo,
   };
 }
