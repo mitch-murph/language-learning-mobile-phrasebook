@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
+import { useWebAudio, useMediaSession } from './useWebAudio';
+
+// Web uses a single persistent <audio> element (see useWebAudio.js) because
+// mobile browsers block/throttle expo-audio's gap-separated play() calls.
+// Platform.OS never changes at runtime, so this hook choice is stable.
+const useBackend = Platform.OS === 'web' ? useWebAudio : () => useAudioPlayer(null);
 
 // Cadence engine — port of the web app's usePlayer.ts.
 //
@@ -97,7 +104,7 @@ const HISTORY_CAP = 6;
 
 export function usePlayer(deck, initialMode = 'drill') {
   // One reusable player; we swap its source per segment.
-  const player = useAudioPlayer(null);
+  const player = useBackend();
 
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -196,7 +203,11 @@ export function usePlayer(deck, initialMode = 'drill') {
       }
     } else {
       gapRemainingRef.current = resolveGapMs(seg, lastDurationRef.current);
-      if (S.current.playing) scheduleGap();
+      if (S.current.playing) {
+        // Web: loop silence so the browser keeps the media session alive.
+        safe(() => player.holdSilence?.());
+        scheduleGap();
+      }
     }
   };
 
@@ -257,12 +268,14 @@ export function usePlayer(deck, initialMode = 'drill') {
         expectFinishRef.current = true;
         safe(() => player.play());
       } else if (seg?.kind === 'gap') {
+        safe(() => player.holdSilence?.());
         scheduleGap(); // resumes with the saved remaining ms
       }
     } else {
       if (seg?.kind === 'audio') {
         safe(() => player.pause());
       } else if (seg?.kind === 'gap' && gapTimerRef.current) {
+        safe(() => player.pause()); // stops the web silence loop
         clearGap();
         gapRemainingRef.current = Math.max(
           0,
@@ -344,6 +357,14 @@ export function usePlayer(deck, initialMode = 'drill') {
     expectFinishRef.current = false;
     startSegmentRef.current(0);
   };
+
+  useMediaSession({
+    phrase: deck[current],
+    playing,
+    onPlay: () => setPlaying(true),
+    onPause: () => setPlaying(false),
+    onNext: () => gotIt(),
+  });
 
   return {
     current,
