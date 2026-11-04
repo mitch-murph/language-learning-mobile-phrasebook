@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useAudioPlayer } from 'expo-audio';
@@ -10,8 +10,8 @@ import { Btn } from '../ui';
 // the right one, hear it confirmed. Port of language-learning-youtube-
 // phrasebook's Overlay.tsx "pause & consider" flow (prompt → choices →
 // answered), adapted from a single random popup into a full pass through
-// the deck — like Player, there's no end; it loops (mod deck length)
-// instead of finishing.
+// the deck, then a results page listing what was missed (with a retry-missed
+// option).
 
 // Base type metrics for the now-playing card, scaled by the fit factor below
 // — same auto-fit technique (and same numbers) as Player's card: a hidden
@@ -28,7 +28,7 @@ function scaleFont(base, f) {
   return out;
 }
 
-export function Quiz({ deck, pool, palette }) {
+export function Quiz({ deck: fullDeck, pool, palette }) {
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const s = useMemo(() => makeStyles(palette), [palette]);
@@ -59,6 +59,14 @@ export function Quiz({ deck, pool, palette }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The deck for the current round: the full session deck first, then just
+  // the missed phrases on "retry missed".
+  const [deck, setDeck] = useState(fullDeck);
+  const [round, setRound] = useState(0);
+  const [finished, setFinished] = useState(false);
+  // id -> { phrase, picks[] } for every phrase missed at least once this round
+  // (picks = the wrong options tapped, in order).
+  const [misses, setMisses] = useState(() => ({}));
   const [idx, setIdx] = useState(0);
   const [phase, setPhase] = useState('prompt'); // prompt -> choices -> answered
   const [wrongIds, setWrongIds] = useState(() => new Set());
@@ -104,7 +112,7 @@ export function Quiz({ deck, pool, palette }) {
     setWrongIds(new Set());
     playUrl(target?.translationUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx]);
+  }, [idx, round]);
 
   useEffect(() => {
     const sub = player.addListener('playbackStatusUpdate', (st) => {
@@ -129,6 +137,10 @@ export function Quiz({ deck, pool, palette }) {
   const pick = (choice) => {
     if (choice.id !== target.id) {
       setWrongIds((prev) => new Set(prev).add(choice.id));
+      setMisses((prev) => ({
+        ...prev,
+        [target.id]: { phrase: target, picks: [...(prev[target.id]?.picks ?? []), choice] },
+      }));
       return;
     }
     setPhase('answered');
@@ -146,10 +158,64 @@ export function Quiz({ deck, pool, palette }) {
     }
   };
 
+  const isLast = idx >= deck.length - 1;
+
   const next = () => {
-    const len = deck.length;
-    setIdx((i) => (len ? (i + 1) % len : 0));
+    if (!isLast) {
+      setIdx((i) => i + 1);
+      return;
+    }
+    safe(() => player.pause());
+    setIsPlaying(false);
+    setFinished(true);
   };
+
+  const startRound = (nextDeck) => {
+    setDeck(nextDeck);
+    setMisses({});
+    setFinished(false);
+    setIdx(0);
+    setRound((n) => n + 1);
+  };
+
+  if (finished) {
+    const missed = deck.map((p) => misses[p.id]).filter(Boolean);
+    const correct = deck.length - missed.length;
+    return (
+      <View style={[s.container, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 14 }]}>
+        <Text style={s.progress}>RESULTS</Text>
+        <View style={s.scoreBox}>
+          <Text style={s.scoreBig}>{correct} / {deck.length}</Text>
+          <Text style={s.scoreSub}>
+            {missed.length === 0 ? 'Perfect — all right on the first try' : 'right on the first try'}
+          </Text>
+        </View>
+        <ScrollView style={s.missList} contentContainerStyle={{ gap: 10 }}>
+          {missed.map(({ phrase, picks }) => (
+            <View key={phrase.id} style={s.missRow}>
+              <Text style={s.missEn}>{phrase.en}</Text>
+              <Text style={s.missRight}>✓ {phrase.native}{phrase.nonLatin && phrase.ro ? `  (${phrase.ro})` : ''}</Text>
+              <Text style={s.missWrong}>✗ {picks.map((c) => c.native).join(', ')}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <View style={s.actions}>
+          {missed.length > 0 && (
+            <Btn onPress={() => startRound(missed.map((m) => m.phrase))} strong style={s.nextBtn}>
+              <Text style={s.nextBtnText}>RETRY MISSED ({missed.length})</Text>
+            </Btn>
+          )}
+          <Btn
+            onPress={() => startRound(fullDeck)}
+            strong={missed.length === 0}
+            style={missed.length === 0 ? s.nextBtn : s.againBtn}
+          >
+            <Text style={missed.length === 0 ? s.nextBtnText : s.againBtnText}>AGAIN</Text>
+          </Btn>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[s.container, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 14 }]}>
@@ -252,7 +318,7 @@ export function Quiz({ deck, pool, palette }) {
               </Btn>
             )}
             <Btn onPress={next} strong style={s.nextBtn}>
-              <Text style={s.nextBtnText}>NEXT ▸</Text>
+              <Text style={s.nextBtnText}>{isLast ? 'RESULTS ▸' : 'NEXT ▸'}</Text>
             </Btn>
           </View>
         )}
@@ -306,5 +372,16 @@ function makeStyles(p) {
     playBtnText: { fontSize: 24, color: p.fg },
     nextBtn: { flex: 1, height: 64, borderRadius: 18, backgroundColor: p.green, alignItems: 'center', justifyContent: 'center' },
     nextBtnText: { fontSize: 20, fontWeight: '800', color: '#fff', letterSpacing: 0.6 },
+    againBtn: { height: 64, paddingHorizontal: 22, borderRadius: 18, borderWidth: 1, borderColor: p.line, backgroundColor: p.bg, alignItems: 'center', justifyContent: 'center' },
+    againBtnText: { fontSize: 16, fontWeight: '800', color: p.fg, letterSpacing: 0.6 },
+
+    scoreBox: { alignItems: 'center', paddingVertical: 18 },
+    scoreBig: { fontSize: 52, fontWeight: '800', color: p.fg },
+    scoreSub: { fontSize: 15, color: p.muted, marginTop: 4 },
+    missList: { flex: 1, marginBottom: 14 },
+    missRow: { padding: 14, borderRadius: 14, backgroundColor: p.surface, borderWidth: 1, borderColor: p.line },
+    missEn: { fontSize: 16, fontWeight: '700', color: p.fg },
+    missRight: { fontSize: 16, color: p.green, marginTop: 6 },
+    missWrong: { fontSize: 14, color: p.danger, marginTop: 3 },
   });
 }
